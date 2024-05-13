@@ -300,7 +300,8 @@ ble_sm_sc_oob_confirm(struct ble_sm_proc *proc, struct ble_sm_result *res)
 void
 ble_sm_sc_confirm_exec(struct ble_sm_proc *proc, struct ble_sm_result *res)
 {
-    struct ble_sm_pair_confirm *cmd;
+    struct ble_sm_hdr hdr;
+    struct ble_sm_pair_confirm cmd;
     struct os_mbuf *txom;
     int rc;
 
@@ -312,17 +313,8 @@ ble_sm_sc_confirm_exec(struct ble_sm_proc *proc, struct ble_sm_result *res)
         return;
     }
 
-    cmd = ble_sm_cmd_get(BLE_SM_OP_PAIR_CONFIRM, sizeof(*cmd), &txom);
-    if (cmd == NULL) {
-        rc = BLE_HS_ENOMEM;
-        res->app_status = rc;
-        res->enc_cb = 1;
-        res->sm_err = BLE_SM_ERR_UNSPECIFIED;
-        return;
-    }
-
     rc = ble_sm_alg_f4(ble_sm_sc_pub_key, proc->pub_key_peer.x,
-                       ble_sm_our_pair_rand(proc), proc->ri, cmd->value);
+                       ble_sm_our_pair_rand(proc), proc->ri, cmd.value);
     if (rc != 0) {
         os_mbuf_free_chain(txom);
         res->app_status = rc;
@@ -330,6 +322,10 @@ ble_sm_sc_confirm_exec(struct ble_sm_proc *proc, struct ble_sm_result *res)
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
         return;
     }
+
+    hdr.opcode = BLE_SM_OP_PAIR_CONFIRM;
+
+    rc = ble_sm_mbuf_pkt(&hdr, &cmd, sizeof(cmd), &txom);
 
     rc = ble_sm_tx(proc->conn_handle, txom);
     if (rc != 0) {
@@ -392,20 +388,22 @@ ble_sm_sc_random_advance(struct ble_sm_proc *proc)
 void
 ble_sm_sc_random_exec(struct ble_sm_proc *proc, struct ble_sm_result *res)
 {
-    struct ble_sm_pair_random *cmd;
+    struct ble_sm_hdr hdr;
+    struct ble_sm_pair_random cmd;
     struct os_mbuf *txom;
     uint8_t ioact;
     int rc;
 
-    cmd = ble_sm_cmd_get(BLE_SM_OP_PAIR_RANDOM, sizeof(*cmd), &txom);
-    if (cmd == NULL) {
-        rc = BLE_HS_ENOMEM;
+    hdr.opcode = BLE_SM_OP_PAIR_RANDOM;
+    memcpy(cmd.value, ble_sm_our_pair_rand(proc), 16);
+
+    rc = ble_sm_mbuf_pkt(&hdr, &cmd, sizeof(cmd), &txom);
+    if (rc != 0) {
+        res->app_status = rc;
         res->enc_cb = 1;
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
         return;
     }
-
-    memcpy(cmd->value, ble_sm_our_pair_rand(proc), 16);
 
     rc = ble_sm_tx(proc->conn_handle, txom);
     if (rc != 0) {
@@ -535,7 +533,7 @@ void
 ble_sm_sc_public_key_exec(struct ble_sm_proc *proc, struct ble_sm_result *res,
                           void *arg)
 {
-    struct ble_sm_public_key *cmd;
+    struct ble_sm_hdr hdr;
     struct os_mbuf *txom;
     uint8_t ioact;
     int rc;
@@ -547,16 +545,16 @@ ble_sm_sc_public_key_exec(struct ble_sm_proc *proc, struct ble_sm_result *res,
         return;
     }
 
-    cmd = ble_sm_cmd_get(BLE_SM_OP_PAIR_PUBLIC_KEY, sizeof(*cmd), &txom);
-    if (!cmd) {
-        res->app_status = BLE_HS_ENOMEM;
+    hdr.opcode = BLE_SM_OP_PAIR_PUBLIC_KEY;
+
+    rc = ble_sm_mbuf_pkt(&hdr, ble_sm_sc_pub_key, sizeof ble_sm_sc_pub_key, &txom);
+
+    if (rc != 0) {
+        res->app_status = rc;
         res->enc_cb = 1;
         res->sm_err = BLE_SM_ERR_UNSPECIFIED;
         return;
     }
-
-    memcpy(cmd->x, ble_sm_sc_pub_key + 0, 32);
-    memcpy(cmd->y, ble_sm_sc_pub_key + 32, 32);
 
     res->app_status = ble_sm_tx(proc->conn_handle, txom);
     if (res->app_status != 0) {
@@ -685,7 +683,8 @@ void
 ble_sm_sc_dhkey_check_exec(struct ble_sm_proc *proc, struct ble_sm_result *res,
                            void *arg)
 {
-    struct ble_sm_dhkey_check *cmd;
+    struct ble_sm_hdr hdr;
+    struct ble_sm_dhkey_check cmd;
     ble_addr_t our_addr;
     ble_addr_t peer_addr;
     struct os_mbuf *txom;
@@ -714,20 +713,16 @@ ble_sm_sc_dhkey_check_exec(struct ble_sm_proc *proc, struct ble_sm_result *res,
 
     ble_sm_sc_dhkey_addrs(proc, &our_addr, &peer_addr);
 
-    cmd = ble_sm_cmd_get(BLE_SM_OP_PAIR_DHKEY_CHECK, sizeof(*cmd), &txom);
-    if (!cmd) {
-        rc = BLE_HS_ENOMEM;
-        goto err;
-    }
-
     rc = ble_sm_alg_f6(proc->mackey, ble_sm_our_pair_rand(proc),
                        ble_sm_peer_pair_rand(proc), proc->tk, iocap,
                        our_addr.type, our_addr.val, peer_addr.type,
-                       peer_addr.val, cmd->value);
+                       peer_addr.val, cmd.value);
     if (rc != 0) {
-        os_mbuf_free_chain(txom);
         goto err;
     }
+
+    hdr.opcode = BLE_SM_OP_PAIR_DHKEY_CHECK;
+    rc = ble_sm_mbuf_pkt(&hdr, &cmd, sizeof(cmd), &txom);
 
     rc = ble_sm_tx(proc->conn_handle, txom);
     if (rc != 0) {

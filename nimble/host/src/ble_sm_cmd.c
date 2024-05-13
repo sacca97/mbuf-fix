@@ -47,6 +47,27 @@ ble_sm_cmd_get(uint8_t opcode, size_t len, struct os_mbuf **txom)
     return hdr->data;
 }
 
+/* Builds a SM packet and put the data into an mbuf ready to be sent. If error the buffer is freed already. */
+int ble_sm_mbuf_pkt(struct ble_sm_hdr *hdr, void *data, size_t len, struct os_mbuf **txom) {
+    *txom = ble_hs_mbuf_l2cap_pkt();
+
+    if (txom == NULL) {
+        return BLE_HS_ENOMEM;
+    }
+
+    if (os_mbuf_copyinto(*txom, 0, hdr, sizeof(struct ble_sm_hdr)) != 0) {
+        os_mbuf_free_chain(*txom);
+        return BLE_HS_ENOMEM;
+    }
+
+    if (os_mbuf_copyinto(*txom, 1, data, len) != 0) {
+        os_mbuf_free_chain(*txom);
+        return BLE_HS_ENOMEM;
+    }
+
+    return 0;
+}
+
 /* this function consumes tx os_mbuf */
 int
 ble_sm_tx(uint16_t conn_handle, struct os_mbuf *txom)
